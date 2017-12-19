@@ -12,7 +12,7 @@ from jaccard import *
 src_data_path = 'test/data/in/'
 res_data_path = 'test/data/out/'
 model_path = 'test/data/models/miniunet.hdf5'
-margin = 8
+margin = 2
 gpu_count = 2
 predict_batch_size=32
 
