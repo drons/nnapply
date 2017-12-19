@@ -33,18 +33,18 @@ def process_image(im_path, model, input_size, output_size, margin, batch_size, l
     sy = img.size[1]
 
     patch_step = (output_size[0] - 2*margin, output_size[1] - 2*margin)
-    count_x = sx / patch_step[0]
-    count_y = sy / patch_step[1]
+    count_x = sx // patch_step[0]
+    count_y = sy // patch_step[1]
     if sx % patch_step[0] > 0:
         count_x = count_x + 1
     if sy % patch_step[1] > 0:
         count_y = count_y + 1
-
+    print('count_x =', count_x)
+    print('count_y =', count_y)
     patches = np.zeros(shape=(count_x, input_size[0], input_size[1], 3),
                        dtype=work_type)
     labels = np.zeros(shape=(count_x, 2), dtype=np.int32)
     res_image = Image.new('L', img.size, 1)
-    print( 'count_x =', count_x )
     for y in range(count_y):
         patch_n = 0
         for x in range(count_x):
