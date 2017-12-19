@@ -2,9 +2,7 @@ import glob
 import numpy as np
 import os
 import time
-from multiprocessing import Process
-from multiprocessing import Lock
-from multiprocessing import Queue
+from multiprocessing import Event, Lock, Process, Queue
 from PIL import Image
 from tqdm import tqdm
 
@@ -78,10 +76,11 @@ def process_image(im_path, model, input_size, output_size, margin, batch_size, l
 
 
 class MultiGpuWorker(Process):
-    def __init__(self, _dev_id, _queue, _model_path, **_args):
+    def __init__(self, _dev_id, _queue, _errev, _model_path, **_args):
         Process.__init__(self, name='MultiGpuWorker')
         self.dev_id = _dev_id
         self.queue = _queue
+        self.errev = _errev
         self.model_path = _model_path
         self.args = _args
 
@@ -92,34 +91,42 @@ class MultiGpuWorker(Process):
 
         # print('Worker %d start with dev_id %s' % (self.pid, os.environ['CUDA_VISIBLE_DEVICES']))
         from keras.models import load_model
+        try:
+            model = load_model(filepath=self.model_path,
+                               custom_objects=dict([('jaccard_distance', jaccard_distance),
+                                                    ('jaccard_index', jaccard_index)]))
+            # print('Model name %s input %s output %s' % (model.name, model.input.shape, model.output.shape))
+            input_size = (int(model.input.shape[1]), int(model.input.shape[2]))
+            output_size = (int(model.output.shape[1]), int(model.output.shape[2]))
+            self.args['model'] = model
+            self.args['output_size'] = output_size
+            self.args['input_size'] = input_size
 
-        model = load_model(filepath=self.model_path,
-                           custom_objects=dict([('jaccard_distance', jaccard_distance),
-                                                ('jaccard_index', jaccard_index)]))
-        # print('Model name %s input %s output %s' % (model.name, model.input.shape, model.output.shape))
-        input_size = (int(model.input.shape[1]), int(model.input.shape[2]))
-        output_size = (int(model.output.shape[1]), int(model.output.shape[2]))
-        self.args['model'] = model
-        self.args['output_size'] = output_size
-        self.args['input_size'] = input_size
-
-        while True:
-            im_path = self.queue.get(block=True)
-            if im_path is None:
-                break
-            dirname, basename = os.path.split(im_path)
-            res_image = process_image(im_path=im_path, **self.args)
-            res_image.save(os.path.join(res_data_path, basename + '.PNG'))
-        print('Worker PID %d is finished' % self.pid)
-
+            while not self.errev.is_set():
+                im_path = self.queue.get(block=True)
+                if im_path is None:
+                    break
+                dirname, basename = os.path.split(im_path)
+                res_image = process_image(im_path=im_path, **self.args)
+                res_image.save(os.path.join(res_data_path, basename + '.PNG'))
+            print('Worker PID %d is finished' % self.pid)
+        except Exception:
+            print('Worker PID %d is failed' % self.pid)
+            self.errev.set()
+            raise
 
 def main():
-    flist = glob.glob(src_data_path + '/*.JPG')
+    flist = glob.glob(src_data_path + '/*.png')
+    if len(flist) == 0:
+        print('Input is empty %s' % src_data_path)
+        exit(-1)
+
     flist.sort()
 
     resultlog = open(res_data_path + '/res.log', 'w')
     resultlog_lock = Lock()
     queue = Queue(maxsize=gpu_count)
+    errev = Event()
     workers = []
     args = dict([('margin', margin),
                  ('batch_size', predict_batch_size),
@@ -127,11 +134,16 @@ def main():
                  ('lock', resultlog_lock)])
 
     for dev_id in range(gpu_count):
-        workers.append(MultiGpuWorker(dev_id, queue, model_path, **args))
+        workers.append(MultiGpuWorker(dev_id, queue, errev, model_path, **args))
     for w in workers:
         w.start()
     for f in tqdm(flist):
         queue.put(f)
+
+    if errev.is_set():
+        print('Some workers are not done.\n')
+        exit(-1)
+
     queue.put(None)
     for w in workers:
         queue.put(None)
