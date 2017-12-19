@@ -1,0 +1,24 @@
+sudo: required
+dist: trusty
+
+language: python
+python:
+  - "2.7"
+  - "3.4"
+  - "3.5"
+  - "3.6"
+
+addons:
+  apt:
+    packages:
+    - graphviz
+    - python-tk
+    - hdfview
+
+before_script:
+  - mkdir -p test/data/in
+  - mkdir -p test/data/out
+  - mkdir -p test/data/models
+  
+script:
+  - "python ImageProcess.py"
